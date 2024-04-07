@@ -1,11 +1,17 @@
 module Bezier.Spring exposing
-    ( SpringParams, analytical, criticalDamping, select, settlesAt, step, stepOver, wobble2Damping
+    ( SpringParams
+    , toPosition, stepOver
+    , select, settlesAt
     , segments, peaks, zeroPoints
     )
 
 {-|
 
-@docs SpringParams, analytical, criticalDamping, select, settlesAt, step, stepOver, wobble2Damping
+@docs SpringParams
+
+@docs toPosition, stepOver
+
+@docs select, settlesAt
 
 @docs segments, peaks, zeroPoints
 
@@ -23,14 +29,15 @@ type alias Duration =
     Float
 
 
-{-| Calculate the position and velocity analytically instead of iteratively.
+type alias SpringParams =
+    { stiffness : Float
+    , damping : Float
+    , mass : Float
+    }
 
-Much faster!
 
-    https :// ellie - app.com / bNgBDt7GspVa1
-
--}
-analytical :
+{-| -}
+toPosition :
     SpringParams
     -> Duration
     -> Float
@@ -42,7 +49,10 @@ analytical :
         { velocity : Float
         , position : Float
         }
-analytical spring duration target initial =
+toPosition spring duration target initial =
+    -- Calculate position and velocity analytically instead of stepping through
+    -- https://ellie-app.com/bNgBDt7GspVa1
+    -- However can be more inaccurate.
     let
         c1 =
             -- offset
@@ -115,13 +125,13 @@ segments spring initialState targetPos =
         (\one two ->
             let
                 posOne =
-                    analytical spring
+                    toPosition spring
                         one
                         targetPos
                         initialState
 
                 posTwo =
-                    analytical spring
+                    toPosition spring
                         two
                         targetPos
                         initialState
@@ -172,6 +182,7 @@ segments spring initialState targetPos =
         (List.drop 1 pks)
 
 
+{-| -}
 zeroPoints :
     SpringParams
     -> Float
@@ -216,6 +227,7 @@ zeroPoints spring ms target initial =
     ]
 
 
+{-| -}
 peaks :
     SpringParams
     -> Float
@@ -273,7 +285,9 @@ peaksHelper options i captured =
         new =
             options.t i * 1000 / options.magicNumber
     in
-    if new >= options.target then
+    if new >= options.target || i > 10 then
+        -- The i >10 check is to prevent infinite loops
+        -- Most springs resolve in 4-5 iterations unless they're springing forever.
         List.reverse (new :: captured)
 
     else
@@ -375,6 +389,11 @@ step target { stiffness, damping, mass } dtms motion =
     }
 
 
+{-| Iteratively step through a spring to get the final position and velocity.
+
+toPosition is faster, but possibly less accurate?
+
+-}
 stepOver :
     Duration
     -> SpringParams
@@ -387,11 +406,8 @@ stepOver :
         { velocity : Float
         , position : Float
         }
-stepOver duration params target state =
+stepOver durMS params target state =
     let
-        durMS =
-            duration
-
         frames =
             durMS / 16
 
@@ -406,13 +422,6 @@ stepOver duration params target state =
                 List.repeat (floor durMS // 16) 16
     in
     List.foldl (step target params) state steps
-
-
-type alias SpringParams =
-    { stiffness : Float
-    , damping : Float
-    , mass : Float
-    }
 
 
 toleranceForSpringSettleTimeCalculation : Float
@@ -510,18 +519,20 @@ settlesAt { stiffness, damping, mass } =
     overdampening happens when the duration is short and the wobble is low.
 
 -}
-select : Float -> Duration -> SpringParams
-select wobbliness duration =
+select : { wobble : Float, stiffness : Float } -> Duration -> SpringParams
+select options duration =
     let
         -- instead of worrying about varying stiffness
         -- we're just choosing a constant
         k =
             -- Debug.log "stiffness" 600
             -- 160
-            500
+            -- 500
+            clampToPortion options.stiffness
+                |> toRange 60 500
 
         damping =
-            wobble2Damping wobbliness k 1 duration
+            wobble2Damping options.wobble k 1 duration
 
         initiallySettlesAt =
             settlesAt
@@ -575,6 +586,16 @@ wobble2Damping wobble k m duration =
     wobble2Ratio wobble duration * criticalDamping k m
 
 
+toRange : Float -> Float -> Float -> Float
+toRange minimum maximum x =
+    minimum + (x * (maximum - minimum))
+
+
+clampToPortion : Float -> Float
+clampToPortion x =
+    max 0 (min 1 x)
+
+
 {-| wobble:
 
     0 -> no wobble
@@ -598,9 +619,7 @@ wobble2Ratio : Float -> Duration -> Float
 wobble2Ratio wobble msDuration =
     let
         bounded =
-            wobble
-                |> max 0
-                |> min 1
+            clampToPortion wobble
 
         scalingBelowDur =
             msDuration / 350

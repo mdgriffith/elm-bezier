@@ -1,16 +1,19 @@
 module Bezier exposing
-    ( fromPoints, Spline, Point, normalize, toPoints
+    ( fromPoints, Spline, Point, toPoints
     , atX, pointOn
     , first, last
     , firstDerivative, secondDerivative
-    , splitAt, splitAtX, splitList, takeBefore, takeAfter
-    , toPath, cssTimingString
-    , horizontal, onePoint, scaleBy, scaleXYBy, withVelocities, zeroPoint
+    , normalize
+    , splitAt, splitAtX, splitList
+    , takeBefore, takeAfter
+    , zeroPoint, onePoint
+    , scale, withVelocities
+    , toPath, toCss
     )
 
 {-|
 
-@docs fromPoints, Spline, Point, normalize, toPoints
+@docs fromPoints, Spline, Point, toPoints
 
 @docs atX, pointOn
 
@@ -18,9 +21,20 @@ module Bezier exposing
 
 @docs firstDerivative, secondDerivative
 
-@docs splitAt, splitAtX, splitList, takeBefore, takeAfter
+@docs normalize
 
-@docs toPath, cssTimingString
+@docs splitAt, splitAtX, splitList
+
+@docs takeBefore, takeAfter
+
+@docs zeroPoint, onePoint
+
+@docs scale, withVelocities
+
+
+# Serialization
+
+@docs toPath, toCss
 
 -}
 
@@ -32,7 +46,32 @@ type alias Proportion =
 
 
 {-| -}
-toPoints : Spline -> { one : Point, two : Point, three : Point, four : Point }
+standard : Spline
+standard =
+    fromPoints
+        { x = 0
+        , y = 0
+        }
+        { x = 0.4
+        , y = 0
+        }
+        { x = 0.2
+        , y = 1
+        }
+        { x = 1
+        , y = 1
+        }
+
+
+{-| -}
+toPoints :
+    Spline
+    ->
+        { one : Point
+        , two : Point
+        , three : Point
+        , four : Point
+        }
 toPoints (Spline one two three four) =
     { one = one
     , two = two
@@ -80,57 +119,23 @@ pathPoint point =
         ++ ("," ++ String.fromFloat point.y)
 
 
-floatStr : Float -> String
-floatStr f =
-    String.fromInt (round (f * 1000))
+{-| Normalize and render to a string that can be used in CSS
 
-
-horizontal : Float -> Float -> Float -> Spline
-horizontal start end level =
-    Spline
-        { x = start
-        , y = level
-        }
-        { x = start
-        , y = level
-        }
-        { x = end
-        , y = level
-        }
-        { x = end
-        , y = level
-        }
-
-
-{-| Normalize the spline from
-x : Time.Absolute
-y : Absolute Position
-
-to
-
-    x : 0-1 based on time domain
-    y : 0-1 based on position domain
+e.g. cubic-bezier(0.1, 0.7, 1.0, 0.1)
 
 -}
-cssTimingString : Spline -> String
-cssTimingString (Spline c0 c1 c2 c3) =
+toCss : Spline -> String
+toCss spline =
     let
-        xDomain =
-            c3.x - c0.x
-
-        yDomain =
-            c3.y - c0.y
+        (Spline c0 c1 c2 c3) =
+            normalize spline
     in
-    if xDomain == 0 || yDomain == 0 then
-        "linear"
-
-    else
-        "cubic-bezier("
-            ++ (String.fromFloat (roundFloat ((c1.x - c0.x) / xDomain)) ++ comma)
-            ++ (String.fromFloat (roundFloat ((c1.y - c0.y) / yDomain)) ++ comma)
-            ++ (String.fromFloat (roundFloat ((c2.x - c0.x) / xDomain)) ++ comma)
-            ++ String.fromFloat (roundFloat ((c2.y - c0.y) / yDomain))
-            ++ ")"
+    "cubic-bezier("
+        ++ (String.fromFloat (roundFloat c1.x) ++ comma)
+        ++ (String.fromFloat (roundFloat c1.y) ++ comma)
+        ++ (String.fromFloat (roundFloat c2.x) ++ comma)
+        ++ String.fromFloat (roundFloat c2.y)
+        ++ ")"
 
 
 roundFloat : Float -> Float
@@ -146,13 +151,6 @@ comma =
 dash : String
 dash =
     "-"
-
-
-doesNotMove : Spline -> Bool
-doesNotMove (Spline fst one two lst) =
-    (fst.x == lst.x)
-        && (one.x == fst.x)
-        && (two.x == fst.x)
 
 
 first : Spline -> Point
@@ -179,17 +177,10 @@ onePoint =
     }
 
 
-scaleBy : Float -> Point -> Point
-scaleBy n { x, y } =
+scale : Float -> Point -> Point
+scale n { x, y } =
     { x = x * n
     , y = y * n
-    }
-
-
-scaleXYBy : Point -> Point -> Point
-scaleXYBy scale { x, y } =
-    { x = x * scale.x
-    , y = y * scale.y
     }
 
 
@@ -317,7 +308,7 @@ secondDerivative (Spline p1 p2 p3 p4) proportion =
             , y = u3.y - u2.y
             }
     in
-    scaleBy 6 (interpolatePoints v1 v2 proportion)
+    scale 6 (interpolatePoints v1 v2 proportion)
 
 
 {-| -}
@@ -477,6 +468,7 @@ withinX x (Spline p1 p2 p3 p4) =
     x >= p1.x && x <= p4.x
 
 
+{-| -}
 splitAtX : Float -> Spline -> ( Spline, Spline )
 splitAtX x spline =
     let
@@ -486,8 +478,10 @@ splitAtX x spline =
     splitAt t spline
 
 
-{-| Split a spline at a particular parameter value, resulting in two smaller
-splines.
+{-| Split a spline at a particular parameter value, resulting in two smaller splines.
+
+Note, this is _not_ the intuitive version you're
+
 -}
 splitAt : Float -> Spline -> ( Spline, Spline )
 splitAt parameterValue (Spline p1 p2 p3 p4) =
@@ -515,6 +509,7 @@ splitAt parameterValue (Spline p1 p2 p3 p4) =
     )
 
 
+{-| -}
 takeAfter : Float -> List Spline -> List Spline
 takeAfter cutoff splines =
     takeAfterHelper cutoff splines
@@ -538,6 +533,7 @@ takeAfterHelper cutoff splines =
                 takeAfterHelper cutoff upcoming
 
 
+{-| -}
 takeBefore : Float -> List Spline -> List Spline
 takeBefore cutoff splines =
     takeBeforeHelper cutoff splines []
@@ -564,7 +560,20 @@ takeBeforeHelper cutoff splines captured =
                 takeBeforeHelper cutoff upcoming (spline :: captured)
 
 
+{-| -}
 splitList :
+    Float
+    -> List Spline
+    ->
+        { before : List Spline
+        , after : List Spline
+        }
+splitList at splines =
+    splitListHelper at splines []
+
+
+{-| -}
+splitListHelper :
     Float
     -> List Spline
     -> List Spline
@@ -572,7 +581,7 @@ splitList :
         { before : List Spline
         , after : List Spline
         }
-splitList at splines passed =
+splitListHelper at splines passed =
     case splines of
         [] ->
             { before = List.reverse passed
@@ -590,7 +599,7 @@ splitList at splines passed =
                 }
 
             else
-                splitList at remain (top :: passed)
+                splitListHelper at remain (top :: passed)
 
 
 {-| The math here comes the `fromEndpoints` constructor in elm-geometry
