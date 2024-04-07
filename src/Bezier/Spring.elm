@@ -4,6 +4,7 @@ module Bezier.Spring exposing
     , settlesAt
     , segments
     , peaks, zeroPoints
+    , criticalDamping
     )
 
 {-| Spring calculations!
@@ -45,18 +46,19 @@ type alias Parameters =
 {-| Calculate the spring's current position and velocity given a spring, a duration, a target position, and an initial state.
 -}
 toPosition :
-    Parameters
+    { spring : Parameters
+    , target : Float
+    , initial :
+        { velocity : Float
+        , position : Float
+        }
+    }
     -> Duration
-    -> Float
     ->
         { velocity : Float
         , position : Float
         }
-    ->
-        { velocity : Float
-        , position : Float
-        }
-toPosition spring duration target initial =
+toPosition { spring, target, initial } duration =
     -- Calculate position and velocity analytically instead of stepping through
     -- https://ellie-app.com/bNgBDt7GspVa1
     -- However can be more inaccurate.
@@ -108,16 +110,22 @@ toPosition spring duration target initial =
             attentuationFactor
                 * (firstFactor + secondFactor)
     in
-    { position = newPosition
+    { position = target - newPosition
     , velocity = newVelocity * magicNumber
     }
 
 
 {-| Given a spring, a starting position and velocity, and a target position, calculate the list of Bezier segments that will approximate the spring motion.
+
+This does assume that the spring settles. It will return a maximum of 10 segments.
+
 -}
 segments :
     Parameters
-    -> { position : Float, velocity : Float }
+    ->
+        { position : Float
+        , velocity : Float
+        }
     -> Float
     -> List Bezier.Spline
 segments spring initialState targetPos =
@@ -127,21 +135,22 @@ segments spring initialState targetPos =
                 0
                 targetPos
                 initialState
+
+        toPos =
+            toPosition
+                { spring = spring
+                , target = targetPos
+                , initial = initialState
+                }
     in
     List.map2
         (\one two ->
             let
                 posOne =
-                    toPosition spring
-                        one
-                        targetPos
-                        initialState
+                    toPos one
 
                 posTwo =
-                    toPosition spring
-                        two
-                        targetPos
-                        initialState
+                    toPos two
 
                 factor =
                     0
@@ -156,7 +165,7 @@ segments spring initialState targetPos =
 
                 ctrlOne =
                     -- + 90
-                    Bezier.Point (one + offsetOne) (targetPos - posOne.position)
+                    Bezier.Point (one + offsetOne) posOne.position
 
                 offsetTwo =
                     (two - one)
@@ -164,14 +173,14 @@ segments spring initialState targetPos =
                         * ((0.55 + factor) - spread)
 
                 ctrlTwo =
-                    Bezier.Point (two - offsetTwo) (targetPos - posTwo.position)
+                    Bezier.Point (two - offsetTwo) posTwo.position
 
                 result =
                     Bezier.fromPoints
-                        (Bezier.Point one (targetPos - posOne.position))
+                        (Bezier.Point one posOne.position)
                         ctrlOne
                         ctrlTwo
-                        (Bezier.Point two (targetPos - posTwo.position))
+                        (Bezier.Point two posTwo.position)
             in
             if two > targetPos then
                 -- This bezier segment is going to overshoot the target
@@ -279,19 +288,26 @@ peaks spring ms target initial =
         []
 
 
-magicNumberHelper : { magicNumber : Float, t : Float -> Float, target : Float } -> Float -> List Float -> List Float
+magicNumberHelper :
+    { magicNumber : Float
+    , t : Float -> Float
+    , target : Float
+    }
+    -> Float
+    -> List Float
+    -> List Float
 magicNumberHelper options i captured =
     let
         new =
             options.t i * 1000 / options.magicNumber
     in
     if new >= options.target || i > 10 then
-        -- The i >10 check is to prevent infinite loops
+        -- The i > 10 check is to prevent infinite loops
         -- Most springs resolve in 4-5 iterations unless they're springing forever.
         List.reverse (new :: captured)
 
     else
-        peaksHelper options (i + 1) (new :: captured)
+        magicNumberHelper options (i + 1) (new :: captured)
 
 
 {-| Whew, math. Exciting isn't it?
@@ -353,8 +369,8 @@ Differential equations with bounding conditions!
 
 -}
 step :
-    Float
-    -> Parameters
+    Parameters
+    -> Float
     -> Float
     ->
         { velocity : Float
@@ -364,7 +380,7 @@ step :
         { velocity : Float
         , position : Float
         }
-step target { stiffness, damping, mass } dtms motion =
+step { stiffness, damping, mass } target dtms motion =
     let
         dt =
             dtms / 1000
@@ -395,33 +411,76 @@ toPosition is faster, but possibly less accurate?
 
 -}
 stepOver :
-    Duration
-    -> Parameters
+    { spring : Parameters
+    , target : Float
+    , stepSize : Float
+    , initial :
+        { velocity : Float
+        , position : Float
+        }
+    }
     -> Float
     ->
         { velocity : Float
         , position : Float
         }
-    ->
+stepOver options durMs =
+    -- let
+    --     frames =
+    --         durMs / options.stepSize
+    --     remainder =
+    --         options.stepSize * (frames - toFloat (floor frames))
+    --     steps =
+    --         if remainder > 0 then
+    --             remainder :: List.repeat (floor (durMs / options.stepSize)) options.stepSize
+    --         else
+    --             List.repeat (floor (durMs / options.stepSize)) options.stepSize
+    --     _ =
+    --         Debug.log "Steps" steps
+    -- in
+    -- List.foldl (step options.spring options.target) options.initial steps
+    stepTo options 0 durMs options.initial
+
+
+stepTo :
+    { spring : Parameters
+    , target : Float
+    , stepSize : Float
+    , initial :
         { velocity : Float
         , position : Float
         }
-stepOver durMS params target state =
+    }
+    -> Float
+    -> Float
+    -> { velocity : Float, position : Float }
+    -> { velocity : Float, position : Float }
+stepTo options t targetT current =
     let
-        frames =
-            durMS / 16
+        _ =
+            Debug.log "Current" current
 
-        remainder =
-            16 * (frames - toFloat (floor frames))
+        isLastStep =
+            t + options.stepSize >= targetT
 
-        steps =
-            if remainder > 0 then
-                remainder :: List.repeat (floor durMS // 16) 16
+        stepSize =
+            if isLastStep then
+                targetT - t
 
             else
-                List.repeat (floor durMS // 16) 16
+                options.stepSize
     in
-    List.foldl (step target params) state steps
+    if stepSize == 0 then
+        current
+
+    else if isLastStep then
+        step options.spring options.target stepSize current
+
+    else
+        stepTo options
+            (t + stepSize)
+            targetT
+            (step options.spring options.target stepSize current)
 
 
 toleranceForSpringSettleTimeCalculation : Float
