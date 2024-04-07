@@ -1,44 +1,51 @@
 module Bezier.Spring exposing
-    ( SpringParams
+    ( Parameters, select
     , toPosition, stepOver
-    , select, settlesAt
-    , segments, peaks, zeroPoints
+    , settlesAt
+    , segments
+    , peaks, zeroPoints
     )
 
-{-|
+{-| Spring calculations!
 
-@docs SpringParams
+This module really does 3 things.
+
+1.  Find a spring that will settle in a certain amount of time.
+2.  Calculate the position of an item at a certain time using a spring.
+3.  Calculate the Bezier segments that will approximate the spring motion.
+
+@docs Parameters, select
 
 @docs toPosition, stepOver
 
-@docs select, settlesAt
+@docs settlesAt
 
-@docs segments, peaks, zeroPoints
+@docs segments
+
+@docs peaks, zeroPoints
 
 -}
 
 import Bezier
 
 
-{-|
-
-    A duration in milliseconds
-
+{-| A duration in milliseconds.
 -}
 type alias Duration =
     Float
 
 
-type alias SpringParams =
+type alias Parameters =
     { stiffness : Float
     , damping : Float
     , mass : Float
     }
 
 
-{-| -}
+{-| Calculate the spring's current position and velocity given a spring, a duration, a target position, and an initial state.
+-}
 toPosition :
-    SpringParams
+    Parameters
     -> Duration
     -> Float
     ->
@@ -109,7 +116,7 @@ toPosition spring duration target initial =
 {-| Given a spring, a starting position and velocity, and a target position, calculate the list of Bezier segments that will approximate the spring motion.
 -}
 segments :
-    SpringParams
+    Parameters
     -> { position : Float, velocity : Float }
     -> Float
     -> List Bezier.Spline
@@ -165,9 +172,6 @@ segments spring initialState targetPos =
                         ctrlOne
                         ctrlTwo
                         (Bezier.Point two (targetPos - posTwo.position))
-
-                _ =
-                    Debug.log "overshoot" ( two, posTwo, targetPos )
             in
             if two > targetPos then
                 -- This bezier segment is going to overshoot the target
@@ -184,8 +188,8 @@ segments spring initialState targetPos =
 
 {-| -}
 zeroPoints :
-    SpringParams
-    -> Float
+    Parameters
+    -> Duration
     -> Float
     ->
         { velocity : Float
@@ -214,23 +218,19 @@ zeroPoints spring ms target initial =
         magicNumber =
             Basics.sqrt (spring.stiffness / spring.mass)
     in
-    [ (t 0 * 1000)
-        / magicNumber
-    , (t 1 * 1000)
-        / magicNumber
-    , (t 2 * 1000)
-        / magicNumber
-    , (t 3 * 1000)
-        / magicNumber
-    , (t 4 * 1000)
-        / magicNumber
-    ]
+    magicNumberHelper
+        { magicNumber = magicNumber
+        , t = t
+        , target = target
+        }
+        0
+        []
 
 
 {-| -}
 peaks :
-    SpringParams
-    -> Float
+    Parameters
+    -> Duration
     -> Float
     ->
         { velocity : Float
@@ -270,7 +270,7 @@ peaks spring ms target initial =
         bottom =
             (dampingRatio * c2) + (c1 * inner)
     in
-    peaksHelper
+    magicNumberHelper
         { magicNumber = magicNumber
         , t = t
         , target = target
@@ -279,8 +279,8 @@ peaks spring ms target initial =
         []
 
 
-peaksHelper : { magicNumber : Float, t : Float -> Float, target : Float } -> Float -> List Float -> List Float
-peaksHelper options i captured =
+magicNumberHelper : { magicNumber : Float, t : Float -> Float, target : Float } -> Float -> List Float -> List Float
+magicNumberHelper options i captured =
     let
         new =
             options.t i * 1000 / options.magicNumber
@@ -354,7 +354,7 @@ Differential equations with bounding conditions!
 -}
 step :
     Float
-    -> SpringParams
+    -> Parameters
     -> Float
     ->
         { velocity : Float
@@ -396,7 +396,7 @@ toPosition is faster, but possibly less accurate?
 -}
 stepOver :
     Duration
-    -> SpringParams
+    -> Parameters
     -> Float
     ->
         { velocity : Float
@@ -442,7 +442,7 @@ toleranceForSpringSettleTimeCalculation =
     https://electronics.stackexchange.com/questions/296567/over-and-critically-damped-systems-settling-time
 
 -}
-settlesAt : SpringParams -> Float
+settlesAt : Parameters -> Float
 settlesAt { stiffness, damping, mass } =
     let
         k =
@@ -519,7 +519,7 @@ settlesAt { stiffness, damping, mass } =
     overdampening happens when the duration is short and the wobble is low.
 
 -}
-select : { wobble : Float, stiffness : Float } -> Duration -> SpringParams
+select : { wobble : Float, stiffness : Float } -> Duration -> Parameters
 select options duration =
     let
         -- instead of worrying about varying stiffness
@@ -547,8 +547,7 @@ select options duration =
             duration
     in
     { stiffness = k
-    , damping =
-        damping
+    , damping = damping
 
     -- newCritical
     -- we use the mass to scale the settling time to the desired duration

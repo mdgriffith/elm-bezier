@@ -1,38 +1,45 @@
 module Bezier exposing
-    ( fromPoints, Spline, Point, toPoints
+    ( fromPoints, Spline, Point, toPoints, standard
     , atX, pointOn
     , first, last
     , firstDerivative, secondDerivative
     , normalize
     , splitAt, splitAtX, splitList
     , takeBefore, takeAfter
-    , zeroPoint, onePoint
-    , scale, withVelocities
+    , scale, translateBy, withVelocities
     , toPath, toCss
     )
 
-{-|
+{-| Bézier(pronounced bez-E-ey) curves are super cool and commonly used in animation!
 
-@docs fromPoints, Spline, Point, toPoints
+[Here is an excellent video on them.](https://www.youtube.com/watch?v=aVwxzDHniEw).
+
+This module borrows a lot of code from [Elm Geometry](https://package.elm-lang.org/packages/ianmackenzie/elm-geometry), but is much more focused on animation needs for [Elm Animator](https://package.elm-lang.org/packages/mdgriffith/elm-animator).
+
+@docs fromPoints, Spline, Point, toPoints, standard
 
 @docs atX, pointOn
 
-@docs first, last
+@docs first, controlOne, controlTwo, last
 
 @docs firstDerivative, secondDerivative
 
 @docs normalize
 
+
+## Splitting
+
 @docs splitAt, splitAtX, splitList
 
 @docs takeBefore, takeAfter
 
-@docs zeroPoint, onePoint
 
-@docs scale, withVelocities
+## Modification
+
+@docs scale, translateBy, withVelocities
 
 
-# Serialization
+## Serialization
 
 @docs toPath, toCss
 
@@ -45,7 +52,11 @@ type alias Proportion =
     Float
 
 
-{-| -}
+{-| A very common Bézier curve that goes from (0,0) to (1,1) with control points at (0.4,0) and (0.2,1).
+
+This is the standard transition curve for a lot of animation systems.
+
+-}
 standard : Spline
 standard =
     fromPoints
@@ -86,21 +97,23 @@ fromPoints =
     Spline
 
 
+{-| -}
 type Spline
     = Spline Point Point Point Point
 
 
+{-| -}
 type alias Point =
     { x : Float
     , y : Float
     }
 
 
-{-|
+{-| Render a spline to a string that can be used in SVG
 
-    -- (M100,250 C100,100 400,100 400,250)
+e.g. (M100,250 C100,100 400,100 400,250)
 
-
+This uses absolute coordinates.
 
 -}
 toPath : Spline -> String
@@ -153,30 +166,31 @@ dash =
     "-"
 
 
+{-| -}
 first : Spline -> Point
 first (Spline f _ _ _) =
     f
 
 
+{-| -}
+controlOne : Spline -> Point
+controlOne (Spline _ c _ _) =
+    c
+
+
+{-| -}
+controlTwo : Spline -> Point
+controlTwo (Spline _ _ c _) =
+    c
+
+
+{-| -}
 last : Spline -> Point
 last (Spline _ _ _ l) =
     l
 
 
-zeroPoint : Point
-zeroPoint =
-    { x = 0
-    , y = 0
-    }
-
-
-onePoint : Point
-onePoint =
-    { x = 1
-    , y = 1
-    }
-
-
+{-| -}
 scale : Float -> Point -> Point
 scale n { x, y } =
     { x = x * n
@@ -184,6 +198,7 @@ scale n { x, y } =
     }
 
 
+{-| -}
 translateBy : Point -> Point -> Point
 translateBy delta { x, y } =
     { x = x + delta.x
@@ -213,10 +228,11 @@ interpolateValue start end t =
         end + (1 - t) * (start - end)
 
 
-{-| Borrowed from: <https://github.com/ianmackenzie/elm-geometry/blob/3.1.0/src/CubicSpline2d.elm#L370>
+{-| Given a spline and a proportion, return the point on the spline at that proportion.
 -}
 pointOn : Spline -> Proportion -> Point
 pointOn ((Spline p1 p2 p3 p4) as s) proportion =
+    -- Borrowed from: <https://github.com/ianmackenzie/elm-geometry/blob/3.1.0/src/CubicSpline2d.elm#L370>
     let
         q1 =
             interpolatePoints p1 p2 proportion
@@ -236,10 +252,10 @@ pointOn ((Spline p1 p2 p3 p4) as s) proportion =
     interpolatePoints r1 r2 proportion
 
 
-{-| Borrowed from: <https://github.com/ianmackenzie/elm-geometry/blob/3.1.0/src/CubicSpline2d.elm#L778>
--}
+{-| -}
 firstDerivative : Spline -> Proportion -> Point
 firstDerivative (Spline p1 p2 p3 p4) proportion =
+    -- Borrowed from: <https://github.com/ianmackenzie/elm-geometry/blob/3.1.0/src/CubicSpline2d.elm#L778>
     let
         vx1 =
             p2.x - p1.x
@@ -278,10 +294,10 @@ firstDerivative (Spline p1 p2 p3 p4) proportion =
     }
 
 
-{-| Borrowed from: <https://github.com/ianmackenzie/elm-geometry/blob/3.1.0/src/CubicSpline2d.elm#L858>
--}
+{-| -}
 secondDerivative : Spline -> Proportion -> Point
 secondDerivative (Spline p1 p2 p3 p4) proportion =
+    -- Borrowed from: <https://github.com/ianmackenzie/elm-geometry/blob/3.1.0/src/CubicSpline2d.elm#L858>
     let
         u1 =
             { x = p2.x - p1.x
@@ -434,33 +450,34 @@ atXHelper ((Spline p1 p2 p3 p4) as spline) desiredX jumpSize t depth =
         atXHelper spline desiredX (jumpSize / 2) (t + jumpSize) (depth + 1)
 
 
-{-| Takes a bezier and shrinks it so that the domain of c0:c3 is
-
-    0,0:1,1
-
+{-| Takes a bezier and normalizes it so that it goes from (0,0) to (1,1).
 -}
 normalize : Spline -> Spline
-normalize (Spline c0 c1 c2 c3) =
-    let
-        factorX =
-            c3.x - c0.x
+normalize ((Spline c0 c1 c2 c3) as untouched) =
+    if c0.x == 0 && c0.y == 0 && c3.x == 1 && c3.y == 1 then
+        untouched
 
-        factorY =
-            c3.y - c0.y
-    in
-    Spline
-        { x = 0
-        , y = 0
-        }
-        { x = (c1.x - c0.x) / factorX
-        , y = (c1.y - c0.y) / factorY
-        }
-        { x = (c2.x - c0.x) / factorX
-        , y = (c2.y - c0.y) / factorY
-        }
-        { x = 1
-        , y = 1
-        }
+    else
+        let
+            factorX =
+                c3.x - c0.x
+
+            factorY =
+                c3.y - c0.y
+        in
+        Spline
+            { x = 0
+            , y = 0
+            }
+            { x = (c1.x - c0.x) / factorX
+            , y = (c1.y - c0.y) / factorY
+            }
+            { x = (c2.x - c0.x) / factorX
+            , y = (c2.y - c0.y) / factorY
+            }
+            { x = 1
+            , y = 1
+            }
 
 
 withinX : Float -> Spline -> Bool
@@ -480,7 +497,7 @@ splitAtX x spline =
 
 {-| Split a spline at a particular parameter value, resulting in two smaller splines.
 
-Note, this is _not_ the intuitive version you're
+Note, this is _not_ the intuitive version you're thinking of.
 
 -}
 splitAt : Float -> Spline -> ( Spline, Spline )
