@@ -136,11 +136,56 @@ full =
 
 null : Bezier.Spring.Parameters
 null =
-    Bezier.Spring.select
-        { wobble = 0
-        , stiffness = 0
-        }
-        1000
+    -- Bezier.Spring.select
+    --     { wobble = 0
+    --     , stiffness = 0
+    --     }
+    --     1000
+    { stiffness = 170
+    , damping = 26
+    , mass = 1
+    }
+
+
+noWobble : Bezier.Spring.Parameters
+noWobble =
+    { stiffness = 170
+    , damping = 26
+    , mass = 1
+    }
+
+
+gentle : Bezier.Spring.Parameters
+gentle =
+    { stiffness = 120
+    , damping = 14
+    , mass = 1
+    }
+
+
+wobbly : Bezier.Spring.Parameters
+wobbly =
+    { stiffness = 180
+    , damping = 12
+    , mass = 1
+    }
+
+
+stiff : Bezier.Spring.Parameters
+stiff =
+    { stiffness = 210
+    , damping = 20
+    , mass = 1
+    }
+
+
+
+-- export default {
+--   noWobble: {stiffness: 170, damping: 26}, // the default, if nothing provided
+--   gentle: {stiffness: 120, damping: 14},
+--   wobbly: {stiffness: 180, damping: 12},
+--   stiff: {stiffness: 210, damping: 20},
+-- };
 
 
 {-| Create a basic spring that is half-wobbly, and settles in 1000ms
@@ -201,13 +246,13 @@ status params =
             Bezier.Spring.criticalDamping params.stiffness params.mass
     in
     if params.damping < crit then
-        UnderDamped crit
+        UnderDamped (crit - params.damping)
 
     else if params.damping == crit then
         Critical
 
     else
-        OverDamped crit
+        OverDamped (crit - params.damping)
 
 
 type Status
@@ -242,6 +287,18 @@ main =
 
         _ =
             Debug.log "null2" ( null2, status null2 )
+
+        _ =
+            Debug.log "noWobble" ( noWobble, status noWobble )
+
+        _ =
+            Debug.log "gentle" ( gentle, status gentle )
+
+        _ =
+            Debug.log "wobbly" ( wobbly, status wobbly )
+
+        _ =
+            Debug.log "stiff" ( stiff, status stiff )
     in
     div []
         [ h1 [] [ text "Spring Playground" ]
@@ -260,12 +317,13 @@ main =
               --
               viewSpring full
             , viewSegments full
-            , viewPeaks full
-            , viewZeros full
 
+            -- , viewPeaks full
+            -- , viewZeros full
             -- --
-            -- , viewSpring null
-            -- , viewSegments null
+            , viewSpring null
+            , viewSegments null
+
             -- , viewPeaks null
             -- , viewZeros null
             , viewSpline { color = "green", dashed = False }
@@ -420,6 +478,50 @@ main =
                 ]
                 []
             ]
+        , Html.h1 [] [ Html.text "React Motion" ]
+        , Svg.svg
+            [ SvgA.width "1400px"
+            , SvgA.height "800px"
+            , SvgA.viewBox "0 -300 1500 1600"
+            , SvgA.style "border: 4px dashed #eee;"
+            ]
+            [ --viewHorizontalBars
+              -- ,
+              viewSpring noWobble
+            , viewSegments noWobble
+
+            -- , viewPeaks noWobble
+            -- , viewZeros noWobble
+            -- --
+            , viewSpring gentle
+            , viewSegments gentle
+
+            -- , viewPeaks gentle
+            , viewSpring wobbly
+            , viewSegments wobbly
+
+            --
+            , viewSpring stiff
+            , viewSegments stiff
+
+            -- , viewPeaks stiff
+            --
+            , viewSpline { color = "green", dashed = False }
+                (standard
+                    { y = 1000
+                    , x = 1000
+                    }
+                )
+            , Svg.line
+                [ SvgA.x1 "0"
+                , SvgA.y1 "0"
+                , SvgA.x2 "1000"
+                , SvgA.y2 "0"
+                , SvgA.stroke "black"
+                , SvgA.strokeWidth "3"
+                ]
+                []
+            ]
         ]
 
 
@@ -496,6 +598,7 @@ viewSegments params =
             Bezier.Spring.segments params
                 initial
                 1000
+                |> Debug.log "Segments!"
     in
     Svg.g []
         (List.indexedMap

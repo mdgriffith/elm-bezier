@@ -115,6 +115,47 @@ toPosition { spring, target, initial } duration =
     }
 
 
+toCatmullSegments :
+    (Float -> Bezier.Point)
+    -> Float
+    -> Float
+    -> List Bezier.Spline
+    -> List Bezier.Spline
+toCatmullSegments toPoint t stepSize captured =
+    let
+        smallStepSize =
+            stepSize * 0.8
+
+        pastT =
+            if t == 0 then
+                0
+
+            else
+                t - smallStepSize
+
+        nextT =
+            t + stepSize
+
+        futureT =
+            t + stepSize + smallStepSize
+    in
+    if t >= 1 then
+        List.reverse
+            captured
+
+    else
+        toCatmullSegments toPoint
+            nextT
+            stepSize
+            (Bezier.fromCatmullRom
+                (toPoint pastT)
+                (toPoint t)
+                (toPoint nextT)
+                (toPoint futureT)
+                :: captured
+            )
+
+
 {-| Given a spring, a starting position and velocity, and a target position, calculate the list of Bezier segments that will approximate the spring motion.
 
 This does assume that the spring settles. It will return a maximum of 10 segments.
@@ -129,70 +170,95 @@ segments :
     -> Float
     -> List Bezier.Spline
 segments spring initialState targetPos =
-    let
-        pks =
-            peaks spring
-                0
-                targetPos
-                initialState
+    if isCriticallyDamped spring then
+        let
+            onSpring =
+                toPosition
+                    { spring = spring
+                    , target = targetPos
+                    , initial = initialState
+                    }
 
-        toPos =
-            toPosition
-                { spring = spring
-                , target = targetPos
-                , initial = initialState
+            toPoint factor =
+                let
+                    x =
+                        factor * targetPos
+                in
+                { x = x
+                , y =
+                    onSpring x
+                        |> .position
                 }
-    in
-    List.map2
-        (\one two ->
-            let
-                posOne =
-                    toPos one
+        in
+        toCatmullSegments toPoint 0 0.25 []
 
-                posTwo =
-                    toPos two
-
-                factor =
+    else
+        let
+            pks =
+                peaks spring
                     0
+                    targetPos
+                    initialState
 
-                spread =
-                    0
+            toPos =
+                toPosition
+                    { spring = spring
+                    , target = targetPos
+                    , initial = initialState
+                    }
+        in
+        List.map2
+            (\one two ->
+                let
+                    posOne =
+                        toPos one
 
-                offsetOne =
-                    (two - one)
-                        -- * 0.257
-                        * ((0.33 - factor) - spread)
+                    posTwo =
+                        toPos two
 
-                ctrlOne =
-                    -- + 90
-                    Bezier.Point (one + offsetOne) posOne.position
+                    factor =
+                        -- 0.06
+                        0
 
-                offsetTwo =
-                    (two - one)
-                        -- * 0.55182845698119
-                        * ((0.55 + factor) - spread)
+                    spread =
+                        -- -0.15
+                        0
 
-                ctrlTwo =
-                    Bezier.Point (two - offsetTwo) posTwo.position
+                    offsetOne =
+                        (two - one)
+                            -- * 0.257
+                            * ((0.33 - factor) - spread)
 
-                result =
-                    Bezier.fromPoints
-                        (Bezier.Point one posOne.position)
-                        ctrlOne
-                        ctrlTwo
-                        (Bezier.Point two posTwo.position)
-            in
-            if two > targetPos then
-                -- This bezier segment is going to overshoot the target
-                result
-                    |> Bezier.splitAtX targetPos
-                    |> Tuple.first
+                    ctrlOne =
+                        -- + 90
+                        Bezier.Point (one + offsetOne) posOne.position
 
-            else
-                result
-        )
-        pks
-        (List.drop 1 pks)
+                    offsetTwo =
+                        (two - one)
+                            -- * 0.55182845698119
+                            * ((0.55 + factor) - spread)
+
+                    ctrlTwo =
+                        Bezier.Point (two - offsetTwo) posTwo.position
+
+                    result =
+                        Bezier.fromPoints
+                            (Bezier.Point one posOne.position)
+                            ctrlOne
+                            ctrlTwo
+                            (Bezier.Point two posTwo.position)
+                in
+                if two > targetPos then
+                    -- This bezier segment is going to overshoot the target
+                    result
+                        |> Bezier.splitAtX targetPos
+                        |> Tuple.first
+
+                else
+                    result
+            )
+            pks
+            (List.drop 1 pks)
 
 
 {-| -}
@@ -236,6 +302,15 @@ zeroPoints spring ms target initial =
         []
 
 
+isCriticallyDamped : Parameters -> Bool
+isCriticallyDamped { stiffness, damping, mass } =
+    let
+        cCritical =
+            criticalDamping stiffness mass
+    in
+    round damping == round cCritical
+
+
 {-| -}
 peaks :
     Parameters
@@ -247,45 +322,51 @@ peaks :
         }
     -> List Float
 peaks spring ms target initial =
-    let
-        inner =
-            Basics.sqrt
-                (1 - (dampingRatio ^ 2))
+    if isCriticallyDamped spring then
+        [ 0
+        , target
+        ]
 
-        c1 =
-            -- offset
-            target - initial.position
+    else
+        let
+            inner =
+                Basics.sqrt
+                    (1 - (dampingRatio ^ 2))
 
-        c2 =
-            dampingRatio * (c1 / inner)
+            c1 =
+                -- offset
+                target - initial.position
 
-        dampingRatio =
-            spring.damping / (2 * Basics.sqrt (spring.mass * spring.stiffness))
+            c2 =
+                dampingRatio * (c1 / inner)
 
-        magicNumber =
-            Basics.sqrt (spring.stiffness / spring.mass)
+            dampingRatio =
+                spring.damping / (2 * Basics.sqrt (spring.mass * spring.stiffness))
 
-        t k =
-            (-1 / inner)
-                * (Basics.atan
-                    (top / bottom)
-                    - k
-                    * Basics.pi
-                  )
+            magicNumber =
+                Basics.sqrt (spring.stiffness / spring.mass)
 
-        top =
-            (dampingRatio * c1) - (c2 * inner)
+            t k =
+                (-1 / inner)
+                    * (Basics.atan
+                        (top / bottom)
+                        - k
+                        * Basics.pi
+                      )
 
-        bottom =
-            (dampingRatio * c2) + (c1 * inner)
-    in
-    magicNumberHelper
-        { magicNumber = magicNumber
-        , t = t
-        , target = target
-        }
-        0
-        []
+            top =
+                (dampingRatio * c1) - (c2 * inner)
+
+            bottom =
+                (dampingRatio * c2) + (c1 * inner)
+        in
+        magicNumberHelper
+            { magicNumber = magicNumber
+            , t = t
+            , target = target
+            }
+            0
+            []
 
 
 magicNumberHelper :
@@ -301,7 +382,7 @@ magicNumberHelper options i captured =
         new =
             options.t i * 1000 / options.magicNumber
     in
-    if new >= options.target || i > 10 then
+    if new >= options.target || i > 8 then
         -- The i > 10 check is to prevent infinite loops
         -- Most springs resolve in 4-5 iterations unless they're springing forever.
         List.reverse (new :: captured)
@@ -425,20 +506,6 @@ stepOver :
         , position : Float
         }
 stepOver options durMs =
-    -- let
-    --     frames =
-    --         durMs / options.stepSize
-    --     remainder =
-    --         options.stepSize * (frames - toFloat (floor frames))
-    --     steps =
-    --         if remainder > 0 then
-    --             remainder :: List.repeat (floor (durMs / options.stepSize)) options.stepSize
-    --         else
-    --             List.repeat (floor (durMs / options.stepSize)) options.stepSize
-    --     _ =
-    --         Debug.log "Steps" steps
-    -- in
-    -- List.foldl (step options.spring options.target) options.initial steps
     stepTo options 0 durMs options.initial
 
 
@@ -457,9 +524,6 @@ stepTo :
     -> { velocity : Float, position : Float }
 stepTo options t targetT current =
     let
-        _ =
-            Debug.log "Current" current
-
         isLastStep =
             t + options.stepSize >= targetT
 

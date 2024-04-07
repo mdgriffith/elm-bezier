@@ -1,5 +1,6 @@
 module Bezier exposing
     ( fromPoints, Spline, Point, toPoints, standard
+    , fromCatmullRom, toCatmullRom
     , atX, pointOn
     , first, last
     , firstDerivative, secondDerivative
@@ -17,6 +18,8 @@ module Bezier exposing
 This module borrows a lot of code from [Elm Geometry](https://package.elm-lang.org/packages/ianmackenzie/elm-geometry), but is much more focused on animation needs for [Elm Animator](https://package.elm-lang.org/packages/mdgriffith/elm-animator).
 
 @docs fromPoints, Spline, Point, toPoints, standard
+
+@docs fromCatmullRom, toCatmullRom
 
 @docs atX, pointOn
 
@@ -89,6 +92,60 @@ toPoints (Spline one two three four) =
     , three = three
     , four = four
     }
+
+
+{-| _Note_ This only approximates a Catmull-Rom spline, it won't successsfully round trip with `toCatmullRom` because the control points are lost.
+-}
+toCatmullRom :
+    Spline
+    ->
+        { one : Point
+        , two : Point
+        , three : Point
+        , four : Point
+        }
+toCatmullRom (Spline b0 b1 b2 b3) =
+    let
+        p0 =
+            { x = b0.x - (b1.x - b0.x) * 6
+            , y = b0.y - (b1.y - b0.y) * 6
+            }
+
+        p1 =
+            b0
+
+        p2 =
+            b3
+
+        p3 =
+            { x = b3.x + (b3.x - b2.x) * 6
+            , y = b3.y + (b3.y - b2.y) * 6
+            }
+    in
+    { one = p0, two = p1, three = p2, four = p3 }
+
+
+{-| -}
+fromCatmullRom : Point -> Point -> Point -> Point -> Spline
+fromCatmullRom p0 p1 p2 p3 =
+    let
+        b0 =
+            p1
+
+        b1 =
+            { x = p1.x + (p2.x - p0.x) / 6
+            , y = p1.y + (p2.y - p0.y) / 6
+            }
+
+        b2 =
+            { x = p2.x - (p3.x - p1.x) / 6
+            , y = p2.y - (p3.y - p1.y) / 6
+            }
+
+        b3 =
+            p2
+    in
+    Spline b0 b1 b2 b3
 
 
 {-| -}
