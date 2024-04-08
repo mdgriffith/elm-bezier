@@ -11,9 +11,9 @@ module Bezier exposing
     , toPath, toCss
     )
 
-{-| Bézier(pronounced bez-E-ey) curves are super cool and commonly used in animation!
+{-| Bézier (pronounced bez-E-ey) curves are super cool and commonly used in animation!
 
-[Here is an excellent video on them.](https://www.youtube.com/watch?v=aVwxzDHniEw).
+[Here is an excellent video on them](https://www.youtube.com/watch?v=aVwxzDHniEw).
 
 This module borrows a lot of code from [Elm Geometry](https://package.elm-lang.org/packages/ianmackenzie/elm-geometry), but is much more focused on animation needs for [Elm Animator](https://package.elm-lang.org/packages/mdgriffith/elm-animator).
 
