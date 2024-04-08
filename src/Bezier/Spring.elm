@@ -1,10 +1,9 @@
 module Bezier.Spring exposing
-    ( Parameters, select
+    ( Parameters, new
     , toPosition, stepOver
     , settlesAt
     , segments
     , peaks, zeroPoints
-    , criticalDamping
     )
 
 {-| Spring calculations!
@@ -15,7 +14,12 @@ This module really does 3 things.
 2.  Calculate the position of an item at a certain time using a spring.
 3.  Calculate the Bezier segments that will approximate the spring motion.
 
-@docs Parameters, select
+@docs Parameters, new
+
+
+# Preselected Springs
+
+@docs noWobble, gentle, wobbly, stiff
 
 @docs toPosition, stepOver
 
@@ -170,7 +174,21 @@ segments :
     -> Float
     -> List Bezier.Spline
 segments spring initialState targetPos =
-    if isCriticallyDamped spring then
+    let
+        pks =
+            peaks spring
+                0
+                targetPos
+                initialState
+
+        crit =
+            criticalDamping spring.stiffness spring.mass
+
+        needsDirectPathing =
+            -- If the spring is criticall damped, overdamped, or only kinda underdamped, then we need direct pathing.
+            (criticalDamping spring.stiffness spring.mass - spring.damping) < 12
+    in
+    if needsDirectPathing then
         let
             onSpring =
                 toPosition
@@ -190,16 +208,10 @@ segments spring initialState targetPos =
                         |> .position
                 }
         in
-        toCatmullSegments toPoint 0 0.25 []
+        toCatmullSegments toPoint 0 0.125 []
 
     else
         let
-            pks =
-                peaks spring
-                    0
-                    targetPos
-                    initialState
-
             toPos =
                 toPosition
                     { spring = spring
@@ -311,6 +323,11 @@ isCriticallyDamped { stiffness, damping, mass } =
     round damping == round cCritical
 
 
+isOverDamped : Parameters -> Bool
+isOverDamped spring =
+    spring.damping > criticalDamping spring.stiffness spring.mass
+
+
 {-| -}
 peaks :
     Parameters
@@ -379,16 +396,16 @@ magicNumberHelper :
     -> List Float
 magicNumberHelper options i captured =
     let
-        new =
+        newNum =
             options.t i * 1000 / options.magicNumber
     in
-    if new >= options.target || i > 8 then
+    if newNum >= options.target || i > 8 then
         -- The i > 10 check is to prevent infinite loops
         -- Most springs resolve in 4-5 iterations unless they're springing forever.
-        List.reverse (new :: captured)
+        List.reverse (newNum :: captured)
 
     else
-        magicNumberHelper options (i + 1) (new :: captured)
+        magicNumberHelper options (i + 1) (newNum :: captured)
 
 
 {-| Whew, math. Exciting isn't it?
@@ -618,44 +635,70 @@ settlesAt { stiffness, damping, mass } =
               )
 
 
-{-| We need to select a spring based on wobbliness and desired settling time.
-
-    wobbliness + settling -> { stiffness, mass (though 1 is nice)}
-
-    stiffness: 120 - 210
-
-        as stiffness increases, settling time shrinks
-        between this number, the settling time is roughly linearly proportional to stiffness.
-        We're going to keep this at 150 because changing it doesn't change the personality of the curve much.
+{-| -}
+noWobble : Parameters
+noWobble =
+    { stiffness = 170
+    , damping = 26
+    , mass = 1
+    }
 
 
-    mass: ~1
-        linearly related to settle time
+{-| -}
+gentle : Parameters
+gentle =
+    { stiffness = 120
+    , damping = 14
+    , mass = 1
+    }
 
-    damping:
-        calculabe from stiffness + mass + wobbliness
+
+{-| -}
+wobbly : Parameters
+wobbly =
+    { stiffness = 180
+    , damping = 12
+    , mass = 1
+    }
 
 
-    wobbliness + stiffness + mass -> damping
+{-| -}
+stiff : Parameters
+stiff =
+    { stiffness = 210
+    , damping = 20
+    , mass = 1
+    }
 
 
-    overdampening happens when the duration is short and the wobble is low.
+{-| Normally when working with springs you have to choose a stiffness and a damping and they'll have seemingly arbitrary values like 216 or 14. This can be very hard to develop an intuition for!
+
+Your first option is to use one of the preselected springs.
+
+The next option could be using this function.
+
+It takes:
+
+  - `wobble` (0-1) - How wobbly you want the spring to be.
+  - `quickness` (0-1) - How quickly you want the spring to move.
+  - `settleMax` (ms) - The maximum time you want the spring to take to settle.
 
 -}
-select : { wobble : Float, stiffness : Float } -> Duration -> Parameters
-select options duration =
+new :
+    { wobble : Float
+    , quickness : Float
+    , settleMax : Float
+    }
+    -> Parameters
+new options =
     let
-        -- instead of worrying about varying stiffness
-        -- we're just choosing a constant
+        -- Vary stiffness
         k =
-            -- Debug.log "stiffness" 600
-            -- 160
-            -- 500
-            clampToPortion options.stiffness
-                |> toRange 60 500
+            clampToPortion options.quickness
+                |> mapToRange 120 210
 
         damping =
-            wobble2Damping options.wobble k 1 duration
+            wobble2Damping options.wobble k 1 options.settleMax
 
         initiallySettlesAt =
             settlesAt
@@ -663,38 +706,25 @@ select options duration =
                 , damping = damping
                 , mass = 1
                 }
-
-        -- newCritical =
-        --     criticalDamping k (durMS / initiallySettlesAt)
-        durMS =
-            duration
     in
-    { stiffness = k
-    , damping = damping
+    if initiallySettlesAt > options.settleMax then
+        -- Scale mass if it's going to take too long to settle
+        -- Lol, physics
+        { stiffness = k
+        , damping = damping
+        , mass = options.settleMax / initiallySettlesAt
+        }
 
-    -- newCritical
-    -- we use the mass to scale the settling time to the desired duration
-    , mass = durMS / initiallySettlesAt
-    }
+    else
+        { stiffness = k
+        , damping = damping
+        , mass = 1
+        }
 
 
 criticalDamping : Float -> Float -> Float
 criticalDamping k m =
     2 * sqrt (k * m)
-
-
-
-{- REDEFINING SPRING PARAMS
-
-   Instead of stiffness and damping, we want to describe the motion that we'll have.
-
-   1. pace ->
-       fast/slow
-   2. wobble ->
-       wobbly
-       noWobble
-
--}
 
 
 {-| Wobble is essentally a damping ratio, but clamped to a certain range of values that are nice.
@@ -706,11 +736,6 @@ the range of the nice values changes
 wobble2Damping : Float -> Float -> Float -> Duration -> Float
 wobble2Damping wobble k m duration =
     wobble2Ratio wobble duration * criticalDamping k m
-
-
-toRange : Float -> Float -> Float -> Float
-toRange minimum maximum x =
-    minimum + (x * (maximum - minimum))
 
 
 clampToPortion : Float -> Float
@@ -753,6 +778,7 @@ wobble2Ratio wobble msDuration =
         |> mapToRange 0.43 top
 
 
+mapToRange : Float -> Float -> Float -> Float
 mapToRange minimum maximum x =
     let
         total =
@@ -761,90 +787,23 @@ mapToRange minimum maximum x =
     minimum + (x * total)
 
 
+status : Parameters -> Status
+status params =
+    let
+        crit =
+            criticalDamping params.stiffness params.mass
+    in
+    if params.damping < crit then
+        UnderDamped (crit - params.damping)
 
-{-
+    else if params.damping == crit then
+        Critical
 
-
-    stiffness: 120 - 210
-    damping : 12 - 26
-
-      // borrowed from react motion for the moment
-     export default {
-       noWobble: [170, 26], // the default
-      - cCritical: 26.06
-      - ratio: ~1
-       gentle: [120, 14],
-      - cCritical: 21.9
-      - ratio: 0.639
-       wobbly: [180, 12],
-      - cCritical: 26.83
-      - ratio: 0.44
-       stiff: [210, 20],
-      - cCritical: 28.98
-      - ratio: 0.69
-
-     };
+    else
+        OverDamped (crit - params.damping)
 
 
-
-   cCritical = 2 * sqrt (k * m)
-
-
-
-
-
-
-
-
-     f(0) = 0; f'(0) = 0; f''(t) = -170(f(t) - 1) - 26f'(t)
-
-         -> e^(-13 t) (e^(13 t) - cos(t) - 13 sin(t))
-
-     f(0) = 0; f'(0) = 0; f''(t) = -120(f(t) - 1) - 14f'(t)
-
-         -> 1 - e^(-7 t) cos(sqrt(71) t) - (7 e^(-7 t) sin(sqrt(71) t))/sqrt(71)
-
-     f(0) = 0; f'(0) = 0; f''(t) = -180(f(t) - 1) - 12f'(t)
-
-     f(0) = 0; f'(0) = 0; f''(t) = -210(f(t) - 1) - 20f'(t)
-
-         -> 1 - e^(-10 t) cos(sqrt(110) t) - sqrt(10/11) e^(-10 t) sin(sqrt(110) t)
-
--}
-{- Deriving equations for the wobbly setting, varying initial conditions
-
-
-
-    f(0) = 0; f'(0) = 0; f''(t) = -180(f(t) - 1) - 12f'(t)
-
-
-
-   -- 0,0
-           -1/2   e^(-6 t) (-2 e^(6 t)
-            + 2 cos(12 t)
-            + sin(12 t))
-
-
-    f(0) = 100; f'(0) = 0; f''(t) = -180(f(t) - 1) - 12f'(t)
-   -- 100, 0
-
-           1
-               + 99 e^(-6 t) cos(12 t)
-               + 99/2 e^(-6 t) sin(12 t)
-
-    f(0) = 100; f'(0) = 100; f''(t) = -180(f(t) - 1) - 12f'(t)
-   -- 100, 100
-
-           1
-               + 99 e^(-6 t) cos(12 t)
-               + 347/6 e^(-6 t) sin(12 t)
-
-
-    f(0) = 0; f'(0) = 100; f''(t) = -180(f(t) - 1) - 12f'(t)
-   -- 0, 100
-
-           1 - e^(-6 t) cos(12 t)
-               + 47/6 e^(-6 t) sin(12 t)
-
-
--}
+type Status
+    = UnderDamped Float
+    | Critical
+    | OverDamped Float

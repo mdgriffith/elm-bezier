@@ -118,33 +118,29 @@ line style one two =
 -}
 basic : Bezier.Spring.Parameters
 basic =
-    Bezier.Spring.select
+    Bezier.Spring.new
         { wobble = 0.5
-        , stiffness = 0
+        , quickness = 0
+        , settleMax = 1000
         }
-        1000
 
 
 full : Bezier.Spring.Parameters
 full =
-    Bezier.Spring.select
+    Bezier.Spring.new
         { wobble = 1
-        , stiffness = 0
+        , quickness = 0
+        , settleMax = 1000
         }
-        1000
 
 
 null : Bezier.Spring.Parameters
 null =
-    -- Bezier.Spring.select
-    --     { wobble = 0
-    --     , stiffness = 0
-    --     }
-    --     1000
-    { stiffness = 170
-    , damping = 26
-    , mass = 1
-    }
+    Bezier.Spring.new
+        { wobble = 0
+        , quickness = 0
+        , settleMax = 1000
+        }
 
 
 noWobble : Bezier.Spring.Parameters
@@ -192,29 +188,29 @@ stiff =
 -}
 basic2 : Bezier.Spring.Parameters
 basic2 =
-    Bezier.Spring.select
+    Bezier.Spring.new
         { wobble = 0.5
-        , stiffness = 1
+        , quickness = 1
+        , settleMax = 1000
         }
-        1000
 
 
 full2 : Bezier.Spring.Parameters
 full2 =
-    Bezier.Spring.select
+    Bezier.Spring.new
         { wobble = 1
-        , stiffness = 1
+        , quickness = 1
+        , settleMax = 1000
         }
-        1000
 
 
 null2 : Bezier.Spring.Parameters
 null2 =
-    Bezier.Spring.select
+    Bezier.Spring.new
         { wobble = 0
-        , stiffness = 1
+        , quickness = 1
+        , settleMax = 1000
         }
-        1000
 
 
 standard : { x : Float, y : Float } -> Bezier.Spline
@@ -234,33 +230,6 @@ standard { x, y } =
         }
 
 
-criticalDamping : Bezier.Spring.Parameters -> Float
-criticalDamping params =
-    Bezier.Spring.criticalDamping params.stiffness params.mass
-
-
-status : Bezier.Spring.Parameters -> Status
-status params =
-    let
-        crit =
-            Bezier.Spring.criticalDamping params.stiffness params.mass
-    in
-    if params.damping < crit then
-        UnderDamped (crit - params.damping)
-
-    else if params.damping == crit then
-        Critical
-
-    else
-        OverDamped (crit - params.damping)
-
-
-type Status
-    = UnderDamped Float
-    | Critical
-    | OverDamped Float
-
-
 initial =
     { velocity = 0
     , position = 0
@@ -269,37 +238,28 @@ initial =
 
 main : Html msg
 main =
-    let
-        _ =
-            Debug.log "basic" ( basic, status basic )
-
-        _ =
-            Debug.log "full" ( full, status full )
-
-        _ =
-            Debug.log "null" ( null, status null )
-
-        _ =
-            Debug.log "basic2" ( basic2, status basic2 )
-
-        _ =
-            Debug.log "full2" ( full2, status full2 )
-
-        _ =
-            Debug.log "null2" ( null2, status null2 )
-
-        _ =
-            Debug.log "noWobble" ( noWobble, status noWobble )
-
-        _ =
-            Debug.log "gentle" ( gentle, status gentle )
-
-        _ =
-            Debug.log "wobbly" ( wobbly, status wobbly )
-
-        _ =
-            Debug.log "stiff" ( stiff, status stiff )
-    in
+    -- let
+    --     _ =
+    --         Debug.log "basic" ( basic, status basic )
+    --     _ =
+    --         Debug.log "full" ( full, status full )
+    --     _ =
+    --         Debug.log "null" ( null, status null )
+    --     _ =
+    --         Debug.log "basic2" ( basic2, status basic2 )
+    --     _ =
+    --         Debug.log "full2" ( full2, status full2 )
+    --     _ =
+    --         Debug.log "null2" ( null2, status null2 )
+    --     _ =
+    --         Debug.log "noWobble" ( noWobble, status noWobble )
+    --     _ =
+    --         Debug.log "gentle" ( gentle, status gentle )
+    --     _ =
+    --         Debug.log "wobbly" ( wobbly, status wobbly )
+    --     _ =
+    --         Debug.log "stiff" ( stiff, status stiff )
+    -- in
     div []
         [ h1 [] [ text "Spring Playground" ]
         , Svg.svg
@@ -310,17 +270,19 @@ main =
             ]
             [ --viewHorizontalBars
               -- ,
-              --   viewSpring basic
-              -- , viewSegments basic
-              -- , viewPeaks basic
-              -- , viewZeros basic
-              --
-              viewSpring full
+              viewSpring basic
+            , viewSegments basic
+
+            -- , viewPeaks basic
+            -- , viewZeros basic
+            --
+            , viewSpring full
             , viewSegments full
 
-            -- , viewPeaks full
-            -- , viewZeros full
-            -- --
+            --   , viewPeaks full
+            --   , viewZeros full
+            --
+            -- ,
             , viewSpring null
             , viewSegments null
 
@@ -357,11 +319,11 @@ main =
             , viewSpring full2
             , viewSegments full2
 
-            -- , viewPeaks full
+            --   , viewPeaks full
             , viewSpring null2
             , viewSegments null2
 
-            -- , viewPeaks null
+            -- , viewPeaks null2
             --
             , viewSpline { color = "green", dashed = False }
                 (standard
@@ -486,16 +448,15 @@ main =
             , SvgA.style "border: 4px dashed #eee;"
             ]
             [ --viewHorizontalBars
-              -- ,
+              --   ,
               viewSpring noWobble
             , viewSegments noWobble
 
             -- , viewPeaks noWobble
             -- , viewZeros noWobble
             -- --
-            , viewSpring gentle
-            , viewSegments gentle
-
+            -- , viewSpring gentle
+            -- , viewSegments gentle
             -- , viewPeaks gentle
             , viewSpring wobbly
             , viewSegments wobbly
@@ -598,7 +559,6 @@ viewSegments params =
             Bezier.Spring.segments params
                 initial
                 1000
-                |> Debug.log "Segments!"
     in
     Svg.g []
         (List.indexedMap
@@ -679,6 +639,7 @@ viewSpring spring =
                         --     ]
                         --     []
                         ]
+                 -- []
                 )
         )
 
