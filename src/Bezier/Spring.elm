@@ -1,6 +1,7 @@
 module Bezier.Spring exposing
     ( Parameters, new
-    , toPosition, stepOver
+    , noWobble, gentle, wobbly, stiff
+    , at, stepOver
     , settlesAt
     , segments
     , peaks, zeroPoints
@@ -21,7 +22,7 @@ This module really does 3 things.
 
 @docs noWobble, gentle, wobbly, stiff
 
-@docs toPosition, stepOver
+@docs at, stepOver
 
 @docs settlesAt
 
@@ -40,6 +41,11 @@ type alias Duration =
     Float
 
 
+{-| The parameters that define a spring.
+
+Check out the presets or `new` if you want some help constructing these values.
+
+-}
 type alias Parameters =
     { stiffness : Float
     , damping : Float
@@ -49,7 +55,7 @@ type alias Parameters =
 
 {-| Calculate the spring's current position and velocity given a spring, a duration, a target position, and an initial state.
 -}
-toPosition :
+at :
     { spring : Parameters
     , target : Float
     , initial :
@@ -62,7 +68,7 @@ toPosition :
         { velocity : Float
         , position : Float
         }
-toPosition { spring, target, initial } duration =
+at { spring, target, initial } duration =
     -- Calculate position and velocity analytically instead of stepping through
     -- https://ellie-app.com/bNgBDt7GspVa1
     -- However can be more inaccurate.
@@ -119,47 +125,6 @@ toPosition { spring, target, initial } duration =
     }
 
 
-toCatmullSegments :
-    (Float -> Bezier.Point)
-    -> Float
-    -> Float
-    -> List Bezier.Spline
-    -> List Bezier.Spline
-toCatmullSegments toPoint t stepSize captured =
-    let
-        smallStepSize =
-            stepSize * 0.8
-
-        pastT =
-            if t == 0 then
-                0
-
-            else
-                t - smallStepSize
-
-        nextT =
-            t + stepSize
-
-        futureT =
-            t + stepSize + smallStepSize
-    in
-    if t >= 1 then
-        List.reverse
-            captured
-
-    else
-        toCatmullSegments toPoint
-            nextT
-            stepSize
-            (Bezier.fromCatmullRom
-                (toPoint pastT)
-                (toPoint t)
-                (toPoint nextT)
-                (toPoint futureT)
-                :: captured
-            )
-
-
 {-| Given a spring, a starting position and velocity, and a target position, calculate the list of Bezier segments that will approximate the spring motion.
 
 This does assume that the spring settles. It will return a maximum of 10 segments.
@@ -191,7 +156,7 @@ segments spring initialState targetPos =
     if needsDirectPathing then
         let
             onSpring =
-                toPosition
+                at
                     { spring = spring
                     , target = targetPos
                     , initial = initialState
@@ -208,12 +173,15 @@ segments spring initialState targetPos =
                         |> .position
                 }
         in
-        toCatmullSegments toPoint 0 0.125 []
+        Bezier.trace
+            { toPoint = toPoint
+            , steps = 8
+            }
 
     else
         let
             toPos =
-                toPosition
+                at
                     { spring = spring
                     , target = targetPos
                     , initial = initialState
@@ -505,7 +473,7 @@ step { stiffness, damping, mass } target dtms motion =
 
 {-| Iteratively step through a spring to get the final position and velocity.
 
-toPosition is faster, but possibly less accurate?
+at is faster, but possibly less accurate?
 
 -}
 stepOver :

@@ -2,9 +2,9 @@ module Bezier exposing
     ( fromPoints, Spline, Point, toPoints, standard
     , fromCatmullRom, toCatmullRom
     , atX, pointOn
-    , first, last
+    , first, controlOne, controlTwo, last
     , firstDerivative, secondDerivative
-    , normalize
+    , normalize, trace
     , splitAt, splitAtX, splitList
     , takeBefore, takeAfter
     , scale, translateBy, withVelocities
@@ -27,7 +27,7 @@ This module borrows a lot of code from [Elm Geometry](https://package.elm-lang.o
 
 @docs firstDerivative, secondDerivative
 
-@docs normalize
+@docs normalize, trace
 
 
 ## Splitting
@@ -505,6 +505,69 @@ atXHelper ((Spline p1 p2 p3 p4) as spline) desiredX jumpSize t depth =
 
     else
         atXHelper spline desiredX (jumpSize / 2) (t + jumpSize) (depth + 1)
+
+
+{-| Given
+
+  - `toPoint` function which takes 0-1 and returns a point, and
+  - `steps` The number of steps to render
+
+Return a list of splines that approximates the curve.
+
+-}
+trace :
+    { toPoint : Float -> Point
+    , steps : Int
+    }
+    -> List Spline
+trace options =
+    let
+        stepSize =
+            1 / toFloat options.steps
+    in
+    traceHelper options.toPoint 0 stepSize []
+
+
+{-| -}
+traceHelper :
+    (Float -> Point)
+    -> Float
+    -> Float
+    -> List Spline
+    -> List Spline
+traceHelper toPoint t stepSize captured =
+    let
+        smallStepSize =
+            stepSize * 0.8
+
+        pastT =
+            if t == 0 then
+                0
+
+            else
+                t - smallStepSize
+
+        nextT =
+            t + stepSize
+
+        futureT =
+            t + stepSize + smallStepSize
+    in
+    if t >= 1 then
+        List.reverse
+            captured
+
+    else
+        traceHelper toPoint
+            nextT
+            stepSize
+            (fromCatmullRom
+                (toPoint pastT)
+                (toPoint t)
+                (toPoint nextT)
+                (toPoint futureT)
+                :: captured
+            )
 
 
 {-| Takes a bezier and normalizes it so that it goes from (0,0) to (1,1).

@@ -596,7 +596,7 @@ viewSpring spring =
                                 (toFloat t)
 
                         new =
-                            Bezier.Spring.toPosition
+                            Bezier.Spring.at
                                 { spring = spring
                                 , target = 1000
                                 , initial = initial
