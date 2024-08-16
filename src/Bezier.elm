@@ -507,10 +507,7 @@ atXHelper ((Spline p1 p2 p3 p4) as spline) desiredX jumpSize t depth =
         atXHelper spline desiredX (jumpSize / 2) (t + jumpSize) (depth + 1)
 
 
-{-| Given
-
-  - `toPoint` function which takes 0-1 and returns a point, and
-  - `steps` The number of steps to render
+{-| Trace out a curve by sampling it at regular intervals.
 
 Return a list of splines that approximates the curve.
 
@@ -518,54 +515,68 @@ Return a list of splines that approximates the curve.
 trace :
     { toPoint : Float -> Point
     , steps : Int
+    , start : Float
+    , end : Float
     }
     -> List Spline
 trace options =
-    let
-        stepSize =
-            1 / toFloat options.steps
-    in
-    traceHelper options.toPoint 0 stepSize []
+    if options.steps == 0 then
+        []
+
+    else
+        let
+            stepSize =
+                (options.end - options.start) / toFloat options.steps
+        in
+        traceHelper options.toPoint options.steps options.start stepSize []
 
 
 {-| -}
 traceHelper :
     (Float -> Point)
+    -> Int
     -> Float
     -> Float
     -> List Spline
     -> List Spline
-traceHelper toPoint t stepSize captured =
+traceHelper toPoint stepsRemaining t stepSize captured =
     let
         smallStepSize =
             stepSize * 0.8
 
-        pastT =
+        atPast =
             if t == 0 then
-                0
+                toPoint (-1 * (stepSize * 0.6))
 
             else
-                t - smallStepSize
+                toPoint (t - smallStepSize)
+
+        atT =
+            toPoint t
 
         nextT =
             t + stepSize
 
-        futureT =
-            t + stepSize + smallStepSize
+        atNext =
+            toPoint nextT
+
+        atFuture =
+            toPoint (t + stepSize + smallStepSize)
     in
-    if t >= 1 then
+    if stepsRemaining <= 0 then
         List.reverse
             captured
 
     else
         traceHelper toPoint
+            (stepsRemaining - 1)
             nextT
             stepSize
             (fromCatmullRom
-                (toPoint pastT)
-                (toPoint t)
-                (toPoint nextT)
-                (toPoint futureT)
+                atPast
+                atT
+                atNext
+                atFuture
                 :: captured
             )
 
