@@ -783,14 +783,12 @@ toleranceForSpringSettleTimeCalculation =
     -1 * logBase e 0.0005
 
 
-{-|
+{-| We can detect when a spring will settle if it is underdamped (meaning it oscillates before resting).
+<https://en.wikipedia.org/wiki/Settling_time>
 
-    We can detect when a spring will settle if it is underdamped (meaning it oscillates before resting)
-    <https://en.wikipedia.org/wiki/Settling_time>
-
-    However for critcally and overdamped systems it gets a lot more complicated.
-    Fortunately, I'm not sure that that's an issue as I don't think we want to model overdamped spring systems for animation.
-    https://electronics.stackexchange.com/questions/296567/over-and-critically-damped-systems-settling-time
+However for critically and overdamped systems it gets a lot more complicated.
+Fortunately, I'm not sure that that's an issue as I don't think we want to model overdamped spring systems for animation.
+<https://electronics.stackexchange.com/questions/296567/over-and-critically-damped-systems-settling-time>
 
 -}
 settlesAt : Parameters -> Float
