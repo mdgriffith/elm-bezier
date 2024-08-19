@@ -4,7 +4,7 @@ module Bezier.Spring exposing
     , at, stepOver
     , settlesAt
     , segments
-    , peaks, zeroPoints
+    , peaks
     )
 
 {-| Spring calculations!
@@ -28,7 +28,7 @@ This module really does 3 things.
 
 @docs segments
 
-@docs peaks, zeroPoints
+@docs peaks
 
 -}
 
@@ -53,7 +53,13 @@ type alias Parameters =
     }
 
 
-{-| Calculate the spring's current position and velocity given a spring, a duration, a target position, and an initial state.
+{-|
+
+    Calculate the spring's current position and velocity given a spring, a duration, a target position, and an initial state.
+
+
+    Duration is in milliseconds.
+
 -}
 at :
     { spring : Parameters
@@ -68,61 +74,118 @@ at :
         { velocity : Float
         , position : Float
         }
-at { spring, target, initial } duration =
-    -- Calculate position and velocity analytically instead of stepping through
-    -- https://ellie-app.com/bNgBDt7GspVa1
-    -- However can be more inaccurate.
+at { spring, target, initial } durationMs =
     let
-        c1 =
-            -- offset
-            target - initial.position
+        { stiffness, damping, mass } =
+            spring
 
+        -- Convert milliseconds to seconds
         t =
-            duration * magicNumber / 1000
+            durationMs / 1000
 
-        magicNumber =
-            Basics.sqrt (spring.stiffness / spring.mass)
+        omega0 =
+            sqrt (stiffness / mass)
 
-        dampingRatio =
-            spring.damping / (2 * Basics.sqrt (spring.mass * spring.stiffness))
+        zeta =
+            damping / (2 * sqrt (mass * stiffness))
 
-        inner =
-            Basics.sqrt
-                (1 - (dampingRatio ^ 2))
+        x0 =
+            initial.position - target
 
-        cosinElement =
-            c1
-                * Basics.cos (inner * t)
+        v0 =
+            initial.velocity
 
-        c2 =
-            dampingRatio * (c1 / inner)
+        omega1 =
+            omega0 * sqrt (1 - zeta ^ 2)
 
-        sinElement =
-            c2 * Basics.sin (inner * t)
+        expTerm =
+            e ^ (-zeta * omega0 * t)
 
-        newPosition =
-            (Basics.e ^ ((-1 * dampingRatio) * t))
-                * (cosinElement + sinElement)
-
-        -- Calculate velocity
-        attentuationFactor =
-            Basics.e ^ ((-1 * dampingRatio) * t)
-
-        firstFactor =
-            ((dampingRatio * c1) - (c2 * inner))
-                * (Basics.cos <| inner * t)
-
-        secondFactor =
-            ((dampingRatio * c2) + (c1 * inner))
-                * (Basics.sin <| inner * t)
-
-        newVelocity =
-            attentuationFactor
-                * (firstFactor + secondFactor)
+        x0Term =
+            x0
+                * cos (omega1 * t)
+                + ((zeta * omega0 * x0 + v0) / omega1)
+                * sin (omega1 * t)
     in
-    { position = target - newPosition
-    , velocity = newVelocity * magicNumber
-    }
+    if zeta < 1 then
+        -- Underdamped case
+        { position =
+            target
+                + expTerm
+                * x0Term
+        , velocity =
+            expTerm
+                * (((v0 + zeta * omega0 * x0) * cos (omega1 * t))
+                    - (omega0 / sqrt (1 - zeta ^ 2))
+                    * (x0 + (zeta / omega0) * v0)
+                    * sin (omega1 * t)
+                  )
+                - zeta
+                * omega0
+                * expTerm
+                * x0Term
+        }
+
+    else if zeta > 1 then
+        -- Overdamped case
+        -- let
+        --     alpha =
+        --         omega0 * (zeta + sqrt (zeta ^ 2 - 1))
+        --     beta =
+        --         omega0 * (zeta - sqrt (zeta ^ 2 - 1))
+        -- in
+        -- { position =
+        --     target
+        --         + (alpha * x0 - v0)
+        --         / (alpha - beta)
+        --         * (e ^ (-beta * t))
+        --         - (beta * x0 - v0)
+        --         / (alpha - beta)
+        --         * (e ^ (-alpha * t))
+        -- , velocity =
+        --     (v0 - alpha * x0)
+        --         / (alpha - beta)
+        --         * alpha
+        --         * (e ^ (-beta * t))
+        --         - (v0 - beta * x0)
+        --         / (alpha - beta)
+        --         * beta
+        --         * (e ^ (-alpha * t))
+        -- }
+        -- The above math doesn't work, so we're going to use a different approach
+        stepOver
+            { spring = spring
+            , target = target
+            , initial = initial
+            , stepSize = 20
+            }
+            durationMs
+
+    else
+        -- -- Critically damped case
+        -- { position =
+        --     target + (x0 + (v0 + omega0 * x0) * t) * expTerm
+        -- , velocity =
+        --     ((v0 + omega0 * x0) - omega0 * (x0 + (v0 + omega0 * x0) * t))
+        --         * expTerm
+        -- }
+        -- let
+        --     freq =
+        --         fundamentalFrequency spring
+        --     period =
+        --         -- ((1 / freq) * 1000) / 2
+        --         -- Which is equivalent to
+        --         500 / freq
+        -- in
+        -- The above math doesn't work, so we're going to use a different approach
+        stepOver
+            { spring = spring
+            , target = target
+            , initial = initial
+            , stepSize =
+                10
+            }
+            durationMs
 
 
 {-| Given a spring, a starting position and velocity, and a target position, calculate the list of Bezier segments that will approximate the spring motion.
@@ -142,103 +205,108 @@ segments spring initialState targetPos =
     let
         pks =
             peaks spring
-                0
+                end
                 targetPos
                 initialState
 
-        crit =
-            criticalDamping spring.stiffness spring.mass
-
-        needsDirectPathing =
-            -- If the spring is criticall damped, overdamped, or only kinda underdamped, then we need direct pathing.
-            (criticalDamping spring.stiffness spring.mass - spring.damping) < 12
+        end =
+            settlesAt spring
     in
-    if needsDirectPathing then
-        let
-            onSpring =
-                at
-                    { spring = spring
-                    , target = targetPos
-                    , initial = initialState
-                    }
-
-            toPoint factor =
-                let
-                    x =
-                        factor * targetPos
-                in
-                { x = x
-                , y =
-                    onSpring x
-                        |> .position
+    let
+        onSpring =
+            at
+                { spring = spring
+                , target = targetPos
+                , initial = initialState
                 }
-        in
-        Bezier.trace
-            { toPoint = toPoint
-            , steps = 8
+
+        toPoint x =
+            { x = x
+            , y =
+                onSpring x
+                    |> .position
             }
+    in
+    case pks of
+        first :: second :: [] ->
+            Bezier.trace
+                { toPoint = toPoint
+                , steps = 8
+                , start = first
+                , end = second
+                }
 
-    else
-        let
-            toPos =
-                at
-                    { spring = spring
-                    , target = targetPos
-                    , initial = initialState
-                    }
-        in
-        List.map2
-            (\one two ->
-                let
-                    posOne =
-                        toPos one
+        first :: second :: remaining ->
+            let
+                firstSegments =
+                    Bezier.trace
+                        { toPoint = toPoint
+                        , steps = 4
+                        , start = first
+                        , end = second
+                        }
 
-                    posTwo =
-                        toPos two
+                tail =
+                    List.map2
+                        (\one two ->
+                            let
+                                posOne =
+                                    onSpring one
 
-                    factor =
-                        -- 0.06
-                        0
+                                posTwo =
+                                    onSpring two
 
-                    spread =
-                        -- -0.15
-                        0
+                                factor =
+                                    0.1
 
-                    offsetOne =
-                        (two - one)
-                            -- * 0.257
-                            * ((0.33 - factor) - spread)
+                                spread =
+                                    -0.03
 
-                    ctrlOne =
-                        -- + 90
-                        Bezier.Point (one + offsetOne) posOne.position
+                                offsetOne =
+                                    (two - one)
+                                        -- * 0.257
+                                        * ((0.33 - factor) - spread)
 
-                    offsetTwo =
-                        (two - one)
-                            -- * 0.55182845698119
-                            * ((0.55 + factor) - spread)
+                                ctrlOne =
+                                    -- + 90
+                                    Bezier.Point (one + offsetOne) posOne.position
 
-                    ctrlTwo =
-                        Bezier.Point (two - offsetTwo) posTwo.position
+                                offsetTwo =
+                                    (two - one)
+                                        -- * 0.55182845698119
+                                        * ((0.55 + factor) - spread)
 
-                    result =
-                        Bezier.fromPoints
-                            (Bezier.Point one posOne.position)
-                            ctrlOne
-                            ctrlTwo
-                            (Bezier.Point two posTwo.position)
-                in
-                if two > targetPos then
-                    -- This bezier segment is going to overshoot the target
-                    result
-                        |> Bezier.splitAtX targetPos
-                        |> Tuple.first
+                                ctrlTwo =
+                                    Bezier.Point (two - offsetTwo) posTwo.position
 
-                else
-                    result
-            )
-            pks
-            (List.drop 1 pks)
+                                result =
+                                    Bezier.fromPoints
+                                        (Bezier.Point one posOne.position)
+                                        ctrlOne
+                                        ctrlTwo
+                                        (Bezier.Point two posTwo.position)
+                            in
+                            if two > end then
+                                -- This bezier segment is going to overshoot the target
+                                result
+                                    |> Bezier.splitAtX end
+                                    |> Tuple.first
+
+                            else
+                                result
+                        )
+                        (List.drop 1 pks)
+                        (List.drop 2 pks)
+            in
+            firstSegments ++ tail
+
+        _ ->
+            Bezier.trace
+                { toPoint = toPoint
+                , steps = 8
+                , start = 0
+                , end = end
+                }
 
 
 {-| -}
@@ -296,6 +364,60 @@ isOverDamped spring =
     spring.damping > criticalDamping spring.stiffness spring.mass
 
 
+fundamentalFrequency : Parameters -> Float
+fundamentalFrequency parameters =
+    let
+        naturalFrequency =
+            sqrt (parameters.stiffness / parameters.mass)
+
+        dampingRatio =
+            parameters.damping / (2 * sqrt (parameters.stiffness * parameters.mass))
+
+        dampedNaturalFrequency =
+            naturalFrequency * sqrt (1 - dampingRatio ^ 2)
+    in
+    dampedNaturalFrequency / (2 * pi)
+
+
+findFirstPeak :
+    Parameters
+    ->
+        { velocity : Float
+        , position : Float
+        }
+    -> Float
+findFirstPeak params initial =
+    let
+        -- Calculate angular frequency (rad/s)
+        omega0 =
+            sqrt (params.stiffness / params.mass)
+
+        -- Calculate damping ratio (dimensionless)
+        zeta =
+            params.damping / (2 * sqrt (params.mass * params.stiffness))
+
+        -- Calculate damped angular frequency (rad/s)
+        omegaD =
+            omega0 * sqrt (1 - zeta ^ 2)
+
+        -- Calculate phase angle (rad)
+        phi =
+            atan2 (initial.velocity + zeta * omega0 * initial.position) (omegaD * initial.position)
+
+        -- Calculate time to first peak (s)
+        t =
+            (pi - phi) / omegaD
+    in
+    if zeta < 1 then
+        -- For underdamped system, return calculated time
+        -- ms
+        t * 1000
+
+    else
+        -- For critically damped or overdamped systems, there's no oscillation
+        0
+
+
 {-| -}
 peaks :
     Parameters
@@ -305,8 +427,92 @@ peaks :
         { velocity : Float
         , position : Float
         }
+    -> List Duration
+peaks spring endMs xTarget initial =
+    if isCriticallyDamped spring || isOverDamped spring then
+        [ 0
+        , xTarget
+        ]
+
+    else
+        let
+            freq =
+                fundamentalFrequency spring
+
+            period =
+                -- ((1 / freq) * 1000) / 2
+                -- Which is equivalent to
+                500 / freq
+
+            offset =
+                firstPeak
+                    (\t ->
+                        at
+                            { spring = spring
+                            , target = xTarget
+                            , initial = initial
+                            }
+                            t
+                            |> .velocity
+                    )
+                    0
+                    5
+                    period
+                    |> Maybe.withDefault 0
+        in
+        capturePeriodicValues offset
+            period
+            0
+            endMs
+            []
+
+
+hasChangedSign : Float -> Float -> Bool
+hasChangedSign a b =
+    (a < 0 && b > 0) || (a > 0 && b < 0)
+
+
+firstPeak : (Float -> Float) -> Float -> Float -> Float -> Maybe Float
+firstPeak toVelocity t stepSize maxT =
+    if t > maxT then
+        Nothing
+
+    else if hasChangedSign (toVelocity t) (toVelocity (t + stepSize)) then
+        let
+            velocityT =
+                toVelocity t
+
+            velocityTPlusStep =
+                toVelocity (t + stepSize)
+
+            velocityTPlusStep2 =
+                toVelocity (t + stepSize + stepSize)
+
+            factor =
+                -- percent of the step where 0 occurs
+                abs velocityT
+                    / (abs velocityT + abs velocityTPlusStep)
+        in
+        -- This should be Just (t + (stepSize * factor))
+        -- But when I plot it out, it's wrong, which is frustrating.
+        -- The below looks closer.
+        -- Ugh, save me.
+        Just (t + stepSize + stepSize + stepSize + (stepSize * factor))
+
+    else
+        firstPeak toVelocity (t + stepSize) stepSize maxT
+
+
+previousPeaksImplementation :
+    Parameters
+    -> Duration
+    -> Float
+    ->
+        { velocity : Float
+        , position : Float
+        }
     -> List Float
-peaks spring ms target initial =
+previousPeaksImplementation spring ms target initial =
     if isCriticallyDamped spring then
         [ 0
         , target
@@ -352,6 +558,43 @@ peaks spring ms target initial =
             }
             0
             []
+
+
+{-|
+
+    This function captures all values that are periodic with a given period and offset.
+
+    It will only capture positive numbers
+
+    and always include 0 as the first value and target as the last.
+
+    Sorta weird, but convenient for our usecase.
+
+-}
+capturePeriodicValues : Float -> Float -> Int -> Float -> List Float -> List Float
+capturePeriodicValues offset period n target captured =
+    let
+        next =
+            offset + (toFloat n * period)
+    in
+    if next > target then
+        List.reverse (target :: captured)
+
+    else if next < 0 then
+        -- Skip, we only care about positive values
+        capturePeriodicValues offset period (n + 1) target captured
+
+    else if next == 0 then
+        -- We landed directly on 0, so we don't need to add it again
+        capturePeriodicValues offset period (n + 1) target (next :: captured)
+
+    else
+        case captured of
+            [] ->
+                capturePeriodicValues offset period (n + 1) target (next :: 0 :: captured)
+
+            _ ->
+                capturePeriodicValues offset period (n + 1) target (next :: captured)
 
 
 magicNumberHelper :
@@ -473,7 +716,7 @@ step { stiffness, damping, mass } target dtms motion =
 
 {-| Iteratively step through a spring to get the final position and velocity.
 
-at is faster, but possibly less accurate?
+[`at`](#at) is faster, but possibly less accurate?
 
 -}
 stepOver :
@@ -536,8 +779,8 @@ toleranceForSpringSettleTimeCalculation : Float
 toleranceForSpringSettleTimeCalculation =
     -- this is about 4 for 2%
     -- however, we want a smaller tolerance
-    -- this is 0.5% tolerance
-    -1 * logBase e 0.005
+    -- this is 0.05% tolerance
+    -1 * logBase e 0.0005
 
 
 {-|
@@ -663,10 +906,15 @@ new options =
         -- Vary stiffness
         k =
             clampToPortion options.quickness
-                |> mapToRange 120 210
+                -- |> mapToRange 120 210
+                |> mapToRange 120 300
 
         damping =
-            wobble2Damping options.wobble k 1 options.settleMax
+            -- Wobble is essentally a damping ratio, but clamped to a certain range of values that are nice.
+            -- We take in the expected settlign time of the spring because at low settling times,
+            -- the range of the nice values changes
+            wobble2Ratio options.wobble options.settleMax
+                * criticalDamping k 1
 
         initiallySettlesAt =
             settlesAt
@@ -676,12 +924,26 @@ new options =
                 }
     in
     if initiallySettlesAt > options.settleMax then
+        let
+            scale =
+                options.settleMax / initiallySettlesAt
+        in
         -- Scale mass if it's going to take too long to settle
         -- Lol, physics
-        { stiffness = k
-        , damping = damping
-        , mass = options.settleMax / initiallySettlesAt
-        }
+        if scale < 0.5 then
+            { stiffness = k + ((1 - (scale / 0.5)) * 500)
+            , damping = damping
+            , mass =
+                0.5
+            }
+
+        else
+            { stiffness = k
+            , damping = damping
+            , mass =
+                -- max 0.47 scale
+                scale
+            }
 
     else
         { stiffness = k
@@ -693,17 +955,6 @@ new options =
 criticalDamping : Float -> Float -> Float
 criticalDamping k m =
     2 * sqrt (k * m)
-
-
-{-| Wobble is essentally a damping ratio, but clamped to a certain range of values that are nice.
-
-We take in the expected settlign time of the spring because at low settling times,
-the range of the nice values changes
-
--}
-wobble2Damping : Float -> Float -> Float -> Duration -> Float
-wobble2Damping wobble k m duration =
-    wobble2Ratio wobble duration * criticalDamping k m
 
 
 clampToPortion : Float -> Float
@@ -723,7 +974,7 @@ ratio:
     0.43 -> max wobble (arbitrarily chosen)
 
 
-    overdampening happens when the duration is short and the wobble is low.
+    overdamping happens when the duration is short and the wobble is low.
 
     if duration is below 350ms, then a high ratio can lead to overdamping, which we don't want.
 
@@ -740,10 +991,15 @@ wobble2Ratio wobble msDuration =
             msDuration / 350
 
         top =
-            max 0.43 (0.9 * min 1 scalingBelowDur)
+            max topRatio (0.9 * min 1 scalingBelowDur)
     in
     (1 - bounded)
-        |> mapToRange 0.43 top
+        |> mapToRange topRatio top
+
+
+topRatio : Float
+topRatio =
+    0.43
 
 
 mapToRange : Float -> Float -> Float -> Float
