@@ -4,7 +4,6 @@ module Bezier.Spring exposing
     , at, stepOver
     , settlesAt
     , segments
-    , peaks
     )
 
 {-| Spring calculations!
@@ -27,8 +26,6 @@ This module really does 3 things.
 @docs settlesAt
 
 @docs segments
-
-@docs peaks
 
 -}
 
