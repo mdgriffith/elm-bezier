@@ -262,6 +262,7 @@ main =
     -- in
     div []
         [ h1 [] [ text "Spring Playground" ]
+        , p [] [ text "Horizontal: time (ms). Vertical: position (positive downward). Red dots: Spring.at. Blue dots: fine-step numerical reference. Blue/black curves: Bezier segments. Green curve: standard easing comparison." ]
         , Svg.svg
             [ SvgA.width "1400px"
             , SvgA.height "800px"
@@ -273,21 +274,14 @@ main =
               viewSpring basic
             , viewSegments basic
 
-            -- , viewPeaks basic
-            -- , viewZeros basic
             --
             , viewSpring full
             , viewSegments full
 
-            --   , viewPeaks full
-            --   , viewZeros full
             --
             -- ,
             , viewSpring null
             , viewSegments null
-
-            -- , viewPeaks null
-            -- , viewZeros null
             , viewSpline { color = "green", dashed = False }
                 (standard
                     { y = 1000
@@ -314,16 +308,11 @@ main =
               -- ,
               viewSpring basic2
             , viewSegments basic2
-
-            -- , viewPeaks basic
             , viewSpring full2
             , viewSegments full2
-
-            --   , viewPeaks full
             , viewSpring null2
             , viewSegments null2
 
-            -- , viewPeaks null2
             --
             , viewSpline { color = "green", dashed = False }
                 (standard
@@ -452,12 +441,9 @@ main =
               viewSpring noWobble
             , viewSegments noWobble
 
-            -- , viewPeaks noWobble
-            -- , viewZeros noWobble
             -- --
             -- , viewSpring gentle
             -- , viewSegments gentle
-            -- , viewPeaks gentle
             , viewSpring wobbly
             , viewSegments wobbly
 
@@ -465,7 +451,6 @@ main =
             , viewSpring stiff
             , viewSegments stiff
 
-            -- , viewPeaks stiff
             --
             , viewSpline { color = "green", dashed = False }
                 (standard
@@ -498,54 +483,6 @@ viewHorizontalBars =
                         , y = 0
                         }
                         { x = toFloat x
-                        , y = 1000
-                        }
-                )
-        )
-
-
-viewPeaks : Bezier.Spring.Parameters -> Svg.Svg msg
-viewPeaks params =
-    let
-        peaks =
-            Bezier.Spring.peaks params
-                0
-                1000
-                initial
-    in
-    Svg.g []
-        (peaks
-            |> List.map
-                (\peakAtX ->
-                    line { color = "red" }
-                        { x = peakAtX
-                        , y = 0
-                        }
-                        { x = peakAtX
-                        , y = 1000
-                        }
-                )
-        )
-
-
-viewZeros : Bezier.Spring.Parameters -> Svg.Svg msg
-viewZeros params =
-    let
-        zeroPoints =
-            Bezier.Spring.zeroPoints params
-                0
-                1000
-                initial
-    in
-    Svg.g []
-        (zeroPoints
-            |> List.map
-                (\peakAtX ->
-                    line { color = "blue" }
-                        { x = peakAtX
-                        , y = 0
-                        }
-                        { x = peakAtX
                         , y = 1000
                         }
                 )
@@ -590,7 +527,7 @@ viewSpring spring =
                             Bezier.Spring.stepOver
                                 { spring = spring
                                 , target = 1000
-                                , stepSize = 16
+                                , stepSize = 0.16
                                 , initial = initial
                                 }
                                 (toFloat t)

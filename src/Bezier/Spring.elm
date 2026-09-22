@@ -55,7 +55,7 @@ type alias Parameters =
     Calculate the spring's current position and velocity given a spring, a duration, a target position, and an initial state.
 
 
-    Duration is in milliseconds.
+    Duration is in milliseconds. Initial and returned velocities are in position units per second.
 
 -}
 at :
@@ -113,8 +113,8 @@ at { spring, target, initial } durationMs =
         , velocity =
             expTerm
                 * (((v0 + zeta * omega0 * x0) * cos (omega1 * t))
-                    - (omega0 / sqrt (1 - zeta ^ 2))
-                    * (x0 + (zeta / omega0) * v0)
+                    - x0
+                    * omega1
                     * sin (omega1 * t)
                   )
                 - zeta
@@ -187,7 +187,12 @@ at { spring, target, initial } durationMs =
 
 {-| Given a spring, a starting position and velocity, and a target position, calculate the list of Bezier segments that will approximate the spring motion.
 
-This does assume that the spring settles. It will return a maximum of 10 segments.
+The segments' x coordinates are elapsed time in milliseconds, from zero to
+`settlesAt spring`. Their y coordinates are positions. Initial velocity is in
+position units per second.
+
+This assumes that the spring settles. The endpoint samples the spring at its
+estimated settling time; it is not forced to the exact target position.
 
 -}
 segments :
@@ -428,7 +433,7 @@ peaks :
 peaks spring endMs xTarget initial =
     if isCriticallyDamped spring || isOverDamped spring then
         [ 0
-        , xTarget
+        , endMs
         ]
 
     else

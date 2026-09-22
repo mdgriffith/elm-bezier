@@ -107,11 +107,6 @@ inlineLabel str =
     div [ Attr.style "width" "150px" ] [ text str ]
 
 
-needsDirectPathing : Bezier.Spring.Parameters -> Bool
-needsDirectPathing spring =
-    (criticalDamping spring.stiffness spring.mass - spring.damping) < 12
-
-
 
 -- row : List (Attribute msg) -> List (Html msg) -> Html msg
 -- row attrs children =
@@ -139,6 +134,8 @@ view model =
     in
     div [ Attr.style "padding" "40px" ]
         [ h1 [] [ text "Spring Playground" ]
+        , p [] [ text "Horizontal: time (ms). Vertical: position (positive downward). Initial velocity: position units/second." ]
+        , p [] [ text "Black dots: Spring.at. Red rings: fine-step numerical reference. Blue/black curves: Bezier segments. Thin vertical lines: segment boundaries. Thick vertical line: estimated settling time." ]
         , row [ Attr.style "gap" "80px" ]
             [ div
                 [ Attr.style "width" "350px"
@@ -150,7 +147,7 @@ view model =
                 , viewSlider "End Position" EndUpdated model.endPosition { min = -1000, max = 1000, step = 10 }
                 , viewSlider "Wobble" WobbleUpdated model.wobble { min = 0, max = 1, step = 0.01 }
                 , viewSlider "Quickness" QuicknessUpdated model.quickness { min = 0, max = 1, step = 0.01 }
-                , viewSlider "Settle Max" SettleMaxUpdated model.settleMax { min = 0, max = 1000, step = 10 }
+                , viewSlider "Settle Max" SettleMaxUpdated model.settleMax { min = 10, max = 1000, step = 10 }
                 , div []
                     [ row [] [ inlineLabel "Stiffness: ", div [] [ text (String.fromFloat params.stiffness) ] ]
                     , row [] [ inlineLabel "Damping: ", div [] [ text (String.fromFloat params.damping) ] ]
@@ -159,7 +156,6 @@ view model =
                     , row [] [ inlineLabel "Settle time: ", div [] [ text (String.fromFloat (Bezier.Spring.settlesAt params)) ] ]
                     , row [] [ inlineLabel "Critically Damped: ", div [] [ text (boolToString (isCriticallyDamped params)) ] ]
                     , row [] [ inlineLabel "Overdamped : ", div [] [ text (boolToString (isOverDamped params)) ] ]
-                    , row [] [ inlineLabel "Direct Path : ", div [] [ text (boolToString (needsDirectPathing params)) ] ]
                     ]
                 ]
             , Svg.svg
@@ -172,11 +168,6 @@ view model =
                   -- ,
                   viewSpringIndividualPoints model params
                 , viewSegments model params
-                , if needsDirectPathing params then
-                    Html.text ""
-
-                  else
-                    viewPeaks model params
                 , let
                     endsAt =
                         Bezier.Spring.settlesAt params
@@ -475,30 +466,6 @@ viewHorizontalBars =
         )
 
 
-viewPeaks : Model -> Bezier.Spring.Parameters -> Svg.Svg msg
-viewPeaks model params =
-    let
-        peaks =
-            Bezier.Spring.peaks params
-                model.startPosition
-                model.endPosition
-                (toInitial model)
-    in
-    Svg.g []
-        (peaks
-            |> List.map
-                (\peakAtX ->
-                    line { color = "red" }
-                        { x = peakAtX
-                        , y = -100
-                        }
-                        { x = peakAtX
-                        , y = 1200
-                        }
-                )
-        )
-
-
 viewSegments : Model -> Bezier.Spring.Parameters -> Svg.Svg msg
 viewSegments model params =
     let
@@ -524,54 +491,50 @@ viewSegments model params =
                 )
                 segments
             )
-        , if needsDirectPathing params then
-            let
-                top =
-                    -400
+        , let
+            top =
+                -400
 
-                bottom =
-                    1400
-            in
-            Svg.g []
-                (List.indexedMap
-                    (\index spline ->
-                        let
-                            { one, two, three, four } =
-                                Bezier.toPoints spline
-                        in
-                        if index == 0 then
-                            [ solidLine { color = "black", stroke = 1 }
-                                { x = one.x
-                                , y = top
-                                }
-                                { x = one.x
-                                , y = bottom
-                                }
-                            , solidLine { color = "black", stroke = 1 }
-                                { x = four.x
-                                , y = top
-                                }
-                                { x = four.x
-                                , y = bottom
-                                }
-                            ]
+            bottom =
+                1400
+          in
+          Svg.g []
+            (List.indexedMap
+                (\index spline ->
+                    let
+                        { one, two, three, four } =
+                            Bezier.toPoints spline
+                    in
+                    if index == 0 then
+                        [ solidLine { color = "black", stroke = 1 }
+                            { x = one.x
+                            , y = top
+                            }
+                            { x = one.x
+                            , y = bottom
+                            }
+                        , solidLine { color = "black", stroke = 1 }
+                            { x = four.x
+                            , y = top
+                            }
+                            { x = four.x
+                            , y = bottom
+                            }
+                        ]
 
-                        else
-                            [ solidLine { color = "black", stroke = 1 }
-                                { x = four.x
-                                , y = top
-                                }
-                                { x = four.x
-                                , y = bottom
-                                }
-                            ]
-                    )
-                    segments
-                    |> List.concat
+                    else
+                        [ solidLine { color = "black", stroke = 1 }
+                            { x = four.x
+                            , y = top
+                            }
+                            { x = four.x
+                            , y = bottom
+                            }
+                        ]
                 )
-
-          else
-            Html.text ""
+                segments
+                |> List.concat
+            )
         ]
 
 
